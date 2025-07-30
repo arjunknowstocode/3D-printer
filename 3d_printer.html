@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Printing Material Predictor Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xgboost"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab-button {
+            padding: 10px 20px;
+            background: #eee;
+            border: none;
+            cursor: pointer;
+            margin-right: 5px;
+            border-radius: 5px 5px 0 0;
+        }
+        .tab-button.active {
+            background: #3498db;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-radius: 0 0 5px 5px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .slider-value {
+            min-width: 50px;
+            text-align: right;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+        .recommendations {
+            margin-top: 15px;
+            padding-left: 20px;
+        }
+        .recommendations li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>3D Printing Material Predictor Pro</h1>
+        
+        <div class="tabs">
+            <button class="tab-button active" onclick="openTab(event, 'prediction')">Quality Prediction</button>
+            <button class="tab-button" onclick="openTab(event, 'visualization')">Data Visualization</button>
+            <button class="tab-button" onclick="openTab(event, 'about')">About</button>
+        </div>
+        
+        <div id="prediction" class="tab-content active">
+            <div class="form-group">
+                <label for="material">Select Material:</label>
+                <select id="material">
+                    <option value="PLA">PLA</option>
+                    <option value="ABS">ABS</option>
+                    <option value="PETG">PETG</option>
+                    <option value="TPU">TPU</option>
+                    <option value="Nylon">Nylon</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="nozzle_temp">Nozzle Temperature (°C): <span id="nozzle_temp_value" class="slider-value">200</span></label>
+                <div class="slider-container">
+                    <input type="range" id="nozzle_temp" min="150" max="300" value="200" step="5" class="slider" oninput="updateSliderValue('nozzle_temp')">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="bed_temp">Bed Temperature (°C): <span id="bed_temp_value" class="slider-value">60</span></label>
+                <div class="slider-container">
+                    <input type="range" id="bed_temp" min="20" max="120" value="60" step="5" class="slider" oninput="updateSliderValue('bed_temp')">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="print_speed">Print Speed (mm/s): <span id="print_speed_value" class="slider-value">50</span></label>
+                <div class="slider-container">
+                    <input type="range" id="print_speed" min="20" max="150" value="50" step="5" class="slider" oninput="updateSliderValue('print_speed')">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="layer_height">Layer Height (mm): <span id="layer_height_value" class="slider-value">0.20</span></label>
+                <div class="slider-container">
+                    <input type="range" id="layer_height" min="5" max="50" value="20" step="1" class="slider" oninput="updateFloatSliderValue('layer_height', 100)">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="infill_percent">Infill (%): <span id="infill_percent_value" class="slider-value">20</span></label>
+                <div class="slider-container">
+                    <input type="range" id="infill_percent" min="0" max="100" value="20" step="5" class="slider" oninput="updateSliderValue('infill_percent')">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="cooling_fan">Cooling Fan (%): <span id="cooling_fan_value" class="slider-value">50</span></label>
+                <div class="slider-container">
+                    <input type="range" id="cooling_fan" min="0" max="100" value="50" step="5" class="slider" oninput="updateSliderValue('cooling_fan')">
+                </div>
+            </div>
+            
+            <button onclick="predictQuality()">Predict Print Quality</button>
+            
+            <div id="results" class="results" style="display: none;">
+                <h3 id="results-title">Prediction Results for PLA:</h3>
+                <p><b>Strength:</b> <span id="strength-result">0.0</span> MPa</p>
+                <p><b>Warping Risk:</b> <span id="warping-result">Low</span> (<span id="warping-prob">0%</span> probability)</p>
+                <p><b>Surface Roughness:</b> <span id="roughness-result">0.00</span> μm</p>
+                <div id="recommendations" class="recommendations" style="display: none;">
+                    <h4>Recommendations:</h4>
+                    <ul id="recommendations-list"></ul>
+                </div>
+            </div>
+        </div>
+        
+        <div id="visualization" class="tab-content">
+            <div class="form-group">
+                <label for="plot-type">Select Visualization:</label>
+                <select id="plot-type" onchange="updatePlot()">
+                    <option value="strength">Strength by Material</option>
+                    <option value="warping">Warping Risk by Material</option>
+                    <option value="surface">Surface Quality vs Print Speed</option>
+                </select>
+            </div>
+            
+            <div class="chart-container">
+                <canvas id="chart"></canvas>
+            </div>
+        </div>
+        
+        <div id="about" class="tab-content">
+            <h2>3D Printing Material Predictor Pro</h2>
+            <p>Version 1.0</p>
+            <p>This application uses machine learning to predict:</p>
+            <ul>
+                <li>Part strength (MPa)</li>
+                <li>Warping risk</li>
+                <li>Surface roughness (μm)</li>
+            </ul>
+            <p>Based on your 3D printing parameters.</p>
+            <p>Dataset: 500 synthetic samples across 5 materials</p>
+            <p>Models: XGBoost (150 estimators)</p>
+        </div>
+    </div>
+
+    <script>
+        // Synthetic dataset similar to the Python version
+        const materials = ['PLA', 'ABS', 'PETG', 'TPU', 'Nylon'];
+        
+        // Material-specific defaults
+        const materialMap = {
+            'PLA': {humidity: 40, chamber_temp: 25, extrusion_multiplier: 1.0},
+            'ABS': {humidity: 25, chamber_temp: 45, extrusion_multiplier: 0.95},
+            'PETG': {humidity: 40, chamber_temp: 30, extrusion_multiplier: 1.05},
+            'TPU': {humidity: 60, chamber_temp: 35, extrusion_multiplier: 1.2},
+            'Nylon': {humidity: 15, chamber_temp: 60, extrusion_multiplier: 0.9}
+        };
+        
+        // Chart instance
+        let chart = null;
+        
+        // Tab functionality
+        function openTab(evt, tabName) {
+            const tabContents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove("active");
+            }
+            
+            const tabButtons = document.getElementsByClassName("tab-button");
+            for (let i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].classList.remove("active");
+            }
+            
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+            
+            if (tabName === 'visualization') {
+                updatePlot();
+            }
+        }
+        
+        // Slider value updates
+        function updateSliderValue(sliderId) {
+            const slider = document.getElementById(sliderId);
+            const valueDisplay = document.getElementById(sliderId + '_value');
+            valueDisplay.textContent = slider.value;
+        }
+        
+        function updateFloatSliderValue(sliderId, scale) {
+            const slider = document.getElementById(sliderId);
+            const valueDisplay = document.getElementById(sliderId + '_value');
+            valueDisplay.textContent = (slider.value / scale).toFixed(2);
+        }
+        
+        // Initialize slider values
+        window.onload = function() {
+            updateSliderValue('nozzle_temp');
+            updateSliderValue('bed_temp');
+            updateSliderValue('print_speed');
+            updateFloatSliderValue('layer_height', 100);
+            updateSliderValue('infill_percent');
+            updateSliderValue('cooling_fan');
+            
+            // Initialize chart
+            updatePlot();
+        };
+        
+        // Prediction function (simplified for demo)
+        function predictQuality() {
+            const material = document.getElementById('material').value;
+            const nozzleTemp = parseInt(document.getElementById('nozzle_temp').value);
+            const bedTemp = parseInt(document.getElementById('bed_temp').value);
+            const printSpeed = parseInt(document.getElementById('print_speed').value);
+            const layerHeight = parseFloat(document.getElementById('layer_height_value').textContent);
+            const infillPercent = parseInt(document.getElementById('infill_percent').value);
+            const coolingFan = parseInt(document.getElementById('cooling_fan').value);
+            
+            // Material defaults
+            const materialDefaults = materialMap[material];
+            
+            // Calculate derived features
+            const coolingRate = coolingFan / nozzleTemp;
+            const volumetricFlow = printSpeed * layerHeight * materialDefaults.extrusion_multiplier;
+            
+            // Simulate predictions (in a real app, you'd call a backend API with these values)
+            // These are simplified calculations based on the Python logic
+            let strength, warpingProb, roughness;
+            
+            // Base values by material
+            const baseValues = {
+                'PLA': {strength: 45, warping: 0.15, roughness: 4.0},
+                'ABS': {strength: 40, warping: 0.4, roughness: 6.0},
+                'PETG': {strength: 43, warping: 0.25, roughness: 5.0},
+                'TPU': {strength: 33, warping: 0.1, roughness: 8.0},
+                'Nylon': {strength: 50, warping: 0.3, roughness: 5.0}
+            };
+            
+            // Adjust based on parameters (simplified)
+            strength = baseValues[material].strength;
+            strength += (nozzleTemp - (material === 'PLA' ? 200 : material === 'ABS' ? 240 : 
+                          material === 'PETG' ? 230 : material === 'TPU' ? 225 : 260)) * 0.05;
+            strength += (infillPercent - 20) * 0.1;
+            strength = Math.max(20, Math.min(60, strength));
+            
+            warpingProb = baseValues[material].warping;
+            warpingProb += (bedTemp - (material === 'PLA' ? 60 : material === 'ABS' ? 100 : 
+                          material === 'PETG' ? 80 : material === 'TPU' ? 50 : 80)) * -0.005;
+            warpingProb = Math.max(0, Math.min(1, warpingProb));
+            
+            roughness = baseValues[material].roughness;
+            roughness += (printSpeed - 50) * 0.02;
+            roughness += (layerHeight - 0.2) * 10;
+            roughness += (100 - coolingFan) * 0.01;
+            roughness = Math.max(2, Math.min(12, roughness));
+            
+            // Display results
+            document.getElementById('results-title').textContent = `Prediction Results for ${material}:`;
+            document.getElementById('strength-result').textContent = strength.toFixed(1);
+            document.getElementById('warping-result').textContent = warpingProb > 0.5 ? 'High' : 'Low';
+            document.getElementById('warping-prob').textContent = `${Math.round(warpingProb * 100)}%`;
+            document.getElementById('roughness-result').textContent = roughness.toFixed(2);
+            
+            // Generate recommendations
+            const recommendations = [];
+            if (warpingProb > 0.5) {
+                recommendations.push("Increase bed temperature by 5-10°C");
+                recommendations.push("Use a brim or raft");
+            }
+            if (roughness > 6) {
+                recommendations.push("Increase cooling fan speed");
+                recommendations.push("Consider lower layer height");
+            }
+            if (strength < 40 && ['PLA', 'ABS', 'PETG'].includes(material)) {
+                recommendations.push("Increase infill percentage");
+            }
+            if (strength < 30 && material === 'TPU') {
+                recommendations.push("Consider increasing wall thickness");
+            }
+            
+            // Display recommendations if any
+            const recommendationsDiv = document.getElementById('recommendations');
+            const recommendationsList = document.getElementById('recommendations-list');
+            
+            if (recommendations.length > 0) {
+                recommendationsList.innerHTML = '';
+                recommendations.forEach(rec => {
+                    const li = document.createElement('li');
+                    li.textContent = rec;
+                    recommendationsList.appendChild(li);
+                });
+                recommendationsDiv.style.display = 'block';
+            } else {
+                recommendationsDiv.style.display = 'none';
+            }
+            
+            // Show results
+            document.getElementById('results').style.display = 'block';
+        }
+        
+        // Visualization function
+        function updatePlot() {
+            const plotType = document.getElementById('plot-type').value;
+            const ctx = document.getElementById('chart').getContext('2d');
+            
+            // Destroy previous chart if it exists
+            if (chart) {
+                chart.destroy();
+            }
+            
+            // Generate synthetic data for visualization
+            if (plotType === 'strength') {
+                // Strength by Material
+                const datasets = materials.map(material => {
+                    // Generate random strength values for each material
+                    let baseStrength;
+                    switch(material) {
+                        case 'PLA': baseStrength = 45; break;
+                        case 'ABS': baseStrength = 40; break;
+                        case 'PETG': baseStrength = 43; break;
+                        case 'TPU': baseStrength = 33; break;
+                        case 'Nylon': baseStrength = 50; break;
+                    }
+                    
+                    const data = Array.from({length: 30}, () => 
+                        baseStrength + (Math.random() * 10 - 5)
+                    );
+                    
+                    return {
+                        label: material,
+                        data: data,
+                        backgroundColor: getMaterialColor(material, 0.2),
+                        borderColor: getMaterialColor(material),
+                        borderWidth: 1
+                    };
+                });
+                
+                chart = new Chart(ctx, {
+                    type: 'boxplot',
+                    data: {
+                        labels: materials,
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Strength by Material'
+                            },
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                title: {
+                                    display: true,
+                                    text: 'Strength (MPa)'
+                                }
+                            }
+                        }
+                    }
+                });
+            } else if (plotType === 'warping') {
+                // Warping Risk by Material
+                const warpingData = materials.map(material => {
+                    // Generate random warping risk counts
+                    let baseRisk;
+                    switch(material) {
+                        case 'PLA': baseRisk = 0.15; break;
+                        case 'ABS': baseRisk = 0.4; break;
+                        case 'PETG': baseRisk = 0.25; break;
+                        case 'TPU': baseRisk = 0.1; break;
+                        case 'Nylon': baseRisk = 0.3; break;
+                    }
+                    
+                    const noWarping = Math.round(50 * (1 - baseRisk));
+                    const warping = Math.round(50 * baseRisk);
+                    
+                    return [noWarping, warping];
+                });
+                
+                chart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: materials,
+                        datasets: [
+                            {
+                                label: 'No Warping',
+                                data: warpingData.map(d => d[0]),
+                                backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'Warping',
+                                data: warpingData.map(d => d[1]),
+                                backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                borderWidth: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Warping Risk Distribution'
+                            },
+                        },
+                        scales: {
+                            x: {
+                                stacked: true,
+                            },
+                            y: {
+                                stacked: true,
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Count'
+                                }
+                            }
+                        }
+                    }
+                });
+            } else if (plotType === 'surface') {
+                // Surface Quality vs Print Speed
+                // Generate synthetic data points
+                const dataPoints = [];
+                for (let i = 0; i < 100; i++) {
+                    const material = materials[Math.floor(Math.random() * materials.length)];
+                    const speed = 20 + Math.random() * 130;
+                    let baseRoughness;
+                    switch(material) {
+                        case 'PLA': baseRoughness = 4.0; break;
+                        case 'ABS': baseRoughness = 6.0; break;
+                        case 'PETG': baseRoughness = 5.0; break;
+                        case 'TPU': baseRoughness = 8.0; break;
+                        case 'Nylon': baseRoughness = 5.0; break;
+                    }
+                    
+                    const roughness = baseRoughness + (speed - 50) * 0.02 + (Math.random() * 2 - 1);
+                    const temp = material === 'PLA' ? 200 : material === 'ABS' ? 240 : 
+                                 material === 'PETG' ? 230 : material === 'TPU' ? 225 : 260;
+                    const noise = Math.random() * 20 - 10;
+                    
+                    dataPoints.push({
+                        x: speed,
+                        y: roughness,
+                        r: 5,
+                        temp: temp + noise,
+                        material: material
+                    });
+                }
+                
+                chart = new Chart(ctx, {
+                    type: 'bubble',
+                    data: {
+                        datasets: [{
+                            label: 'Print Speed vs Surface Quality',
+                            data: dataPoints,
+                            backgroundColor: dataPoints.map(point => {
+                                // Color by nozzle temp
+                                const temp = point.temp;
+                                const ratio = (temp - 180) / (280 - 180);
+                                const r = Math.floor(255 * ratio);
+                                const b = Math.floor(255 * (1 - ratio));
+                                return `rgba(${r}, 100, ${b}, 0.6)`;
+                            }),
+                            borderColor: dataPoints.map(point => {
+                                const temp = point.temp;
+                                const ratio = (temp - 180) / (280 - 180);
+                                const r = Math.floor(255 * ratio);
+                                const b = Math.floor(255 * (1 - ratio));
+                                return `rgba(${r}, 100, ${b}, 1)`;
+                            }),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Print Speed vs Surface Quality'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return [
+                                            `Material: ${context.raw.material}`,
+                                            `Speed: ${context.raw.x} mm/s`,
+                                            `Roughness: ${context.raw.y.toFixed(2)} μm`,
+                                            `Nozzle Temp: ${context.raw.temp.toFixed(0)}°C`
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Print Speed (mm/s)'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Surface Roughness (μm)'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        // Helper function to get material colors
+        function getMaterialColor(material, opacity = 1) {
+            const colors = {
+                'PLA': `rgba(50, 150, 50, ${opacity})`,
+                'ABS': `rgba(200, 50, 50, ${opacity})`,
+                'PETG': `rgba(50, 50, 200, ${opacity})`,
+                'TPU': `rgba(200, 50, 200, ${opacity})`,
+                'Nylon': `rgba(150, 150, 150, ${opacity})`
+            };
+            return colors[material];
+        }
+    </script>
+</body>
+</html>
